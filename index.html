@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>魔方重力盘</title>
+  <style>
+    :root {
+      font-family: "Geist", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #f2f3ed;
+      background: #101518;
+      --panel: #171f23;
+      --line: #303b40;
+      --muted: #a9b7ba;
+      --accent: #f5cc76;
+      --dark-ink: #231b0d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button { font: inherit; cursor: pointer; color: inherit; -webkit-tap-highlight-color: transparent; }
+    button:disabled { cursor: default; opacity: .43; }
+    button:focus-visible, canvas:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+    .shell { max-width: 1160px; margin: auto; padding: 34px 24px 28px; }
+    .masthead { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 23px; }
+    h1 { margin: 0; font-size: clamp(30px, 4vw, 46px); line-height: 1.08; letter-spacing: -.055em; font-weight: 720; }
+    .counts { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .counts span + span { padding-left: 12px; border-left: 1px solid var(--line); }
+    .counts b { color: #f0f2ee; font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 600; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 305px; gap: 18px; align-items: start; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+    .board-panel { padding: 14px 16px 16px; }
+    .board-header { display: flex; align-items: center; justify-content: space-between; padding: 0 3px; gap: 12px; }
+    .board-heading, .section-heading { margin: 0; font-size: 15px; font-weight: 650; }
+    .status { display: flex; align-items: center; gap: 7px; color: var(--accent); font-size: 13px; }
+    .status::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .board-frame {
+      --gutter: 37px;
+      position: relative;
+      width: min(100%, 700px, max(300px, calc(100svh - 200px)));
+      margin: 11px auto 0;
+      aspect-ratio: 1;
+      padding: var(--gutter);
+      background: #11191c;
+      border: 1px solid #2b373b;
+      border-radius: 9px;
+    }
+    .surface { position: relative; width: 100%; height: 100%; }
+    .surface::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border: 1px solid #57676b;
+      box-shadow: inset 0 0 9px #10151838;
+    }
+    .board-frame[data-gravity="A"] .surface::after { border-bottom: 2px solid var(--accent); }
+    .board-frame[data-gravity="B"] .surface::after { border-right: 2px solid var(--accent); }
+    .board-frame[data-gravity="C"] .surface::after { border-top: 2px solid var(--accent); }
+    .board-frame[data-gravity="D"] .surface::after { border-left: 2px solid var(--accent); }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    canvas[data-mode="arranging"], canvas[data-mode="pin"] { cursor: crosshair; }
+    canvas[data-mode="grab"] { cursor: grab; }
+    canvas[data-mode="drag"] { cursor: grabbing; }
+    .edge {
+      position: absolute;
+      z-index: 1;
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #b6c2c4;
+      font: 650 14px/1 "IBM Plex Mono", ui-monospace, monospace;
+    }
+    .edge[aria-pressed="true"] { background: #3a3020; border-color: #80643d; color: var(--accent); }
+    .edge-A { bottom: 2px; left: 50%; transform: translateX(-50%); }
+    .edge-B { right: 2px; top: 50%; transform: translateY(-50%); }
+    .edge-C { top: 2px; left: 50%; transform: translateX(-50%); }
+    .edge-D { left: 2px; top: 50%; transform: translateY(-50%); }
+    .controls { padding: 18px; }
+    .hint { margin: 7px 0 12px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+    .net-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+    .net-button, .pin-button, .gravity-button, .secondary {
+      background: #1d272b;
+      border: 1px solid #36454a;
+      border-radius: 7px;
+      min-height: 44px;
+      font-size: 13px;
+    }
+    .net-button { padding: 8px 4px 7px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .net-button canvas { width: 47px; height: 28px; pointer-events: none; }
+    .net-button[aria-pressed="true"]:not(:disabled) { border-color: #ee826e; background: #3a2928; color: #ffb9ac; }
+    .pin-button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      margin-top: 7px;
+      padding: 0 10px;
+    }
+    .pin-button[aria-pressed="true"] { border-color: #9d7846; background: #3a3020; color: var(--accent); }
+    .pin-dot { width: 10px; height: 10px; border: 2px solid #f5cc76; border-radius: 50%; background: #78603b; flex: none; }
+    .pin-count { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .control-group + .control-group { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 17px; }
+    .direction-pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+    .gravity-button { display: flex; justify-content: center; align-items: center; gap: 5px; color: #d6dfe0; }
+    .gravity-button .arrow { font-size: 19px; line-height: 1; }
+    .gravity-button[aria-pressed="true"] { background: #3a3020; border-color: #9d7846; color: var(--accent); }
+    .direction-pad [data-direction="C"] { grid-area: 1 / 2; }
+    .direction-pad [data-direction="D"] { grid-area: 2 / 1; }
+    .direction-pad [data-direction="A"] { grid-area: 2 / 2; }
+    .direction-pad [data-direction="B"] { grid-area: 2 / 3; }
+    .gravity-help { margin: 9px 0 0; }
+    .release {
+      width: 100%; min-height: 49px; border-radius: 7px; border: 1px solid #f5cc76;
+      background: var(--accent); color: var(--dark-ink); font-weight: 750;
+    }
+    .release:disabled { background: #2a3131; border-color: #465153; color: #abb8b9; opacity: 1; }
+    .round-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
+    .secondary { padding: 6px; }
+    .notice { margin: 10px 0 0; color: #ffad9d; font-size: 13px; line-height: 1.5; }
+    .notice:empty { display: none; }
+    @media (hover: hover) {
+      .net-button:not(:disabled):hover, .pin-button:not(:disabled):hover, .gravity-button:hover, .secondary:not(:disabled):hover, .edge:hover {
+        border-color: #87979a;
+      }
+      .release:not(:disabled):hover { background: #ffda8f; }
+    }
+    @media (max-width: 760px) {
+      .shell { max-width: 620px; padding: 18px 10px 18px; }
+      .masthead { margin: 0 2px 12px; align-items: baseline; }
+      .counts { gap: 6px; font-size: 11px; }
+      .counts span + span { padding-left: 6px; }
+      .workspace { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+      .board-panel { padding: 9px; }
+      .board-frame { --gutter: 26px; width: 100%; margin-top: 7px; }
+      .edge { width: 23px; height: 23px; font-size: 13px; padding: 0; }
+      .edge-A { bottom: 1px; }
+      .edge-B { right: 1px; }
+      .edge-C { top: 1px; }
+      .edge-D { left: 1px; }
+      .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; padding: 11px; }
+      .control-group + .control-group { margin: 0; padding: 0; border: 0; }
+      .round-group { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; align-items: start; }
+      .round-actions { margin: 0; }
+      .hint, .gravity-help { font-size: 12px; margin: 4px 0 7px; }
+      .net-actions, .direction-pad { gap: 4px; }
+      .direction-pad { margin-top: 6px; }
+      .net-button { gap: 2px; padding: 4px 0; font-size: 11px; }
+      .net-button canvas { width: min(100%, 33px); height: 20px; }
+      .pin-button { gap: 5px; padding: 0 6px; }
+      .gravity-button { gap: 2px; }
+      .release, .secondary { min-height: 44px; font-size: 13px; }
+      .secondary { padding: 3px; }
+      .notice { grid-column: 1 / -1; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <h1>魔方重力盘</h1>
+      <div class="counts"><span><b>36 × 36</b> 网格</span><span><b>162</b> 色块</span></div>
+    </header>
+
+    <div class="workspace">
+      <section class="panel board-panel" aria-labelledby="board-title">
+        <div class="board-header">
+          <h2 class="board-heading" id="board-title">盘面</h2>
+          <div class="status" id="status" role="status">摆放中</div>
+        </div>
+        <div class="board-frame" id="frame" data-gravity="A">
+          <div class="surface">
+            <canvas id="board" tabindex="0" aria-label="魔方盘面。摆放时按住 Shift 并按方向键，可移动选中的展开图。"></canvas>
+          </div>
+          <button type="button" class="edge edge-A" data-direction="A" aria-label="A 向下">A</button>
+          <button type="button" class="edge edge-B" data-direction="B" aria-label="B 向右">B</button>
+          <button type="button" class="edge edge-C" data-direction="C" aria-label="C 向上">C</button>
+          <button type="button" class="edge edge-D" data-direction="D" aria-label="D 向左">D</button>
+        </div>
+      </section>
+
+      <aside class="panel controls" aria-label="盘面操作">
+        <section class="control-group">
+          <h2 class="section-heading">起始布置</h2>
+          <p class="hint" id="placement-help">拖动整张展开图，或选中后点击空格摆放。</p>
+          <div class="net-actions" id="net-actions"></div>
+          <button type="button" class="pin-button" id="edit-pins">
+            <span class="pin-dot" aria-hidden="true"></span>
+            布置钉子
+            <span class="pin-count" id="pin-count">0 枚</span>
+          </button>
+        </section>
+
+        <section class="control-group">
+          <h2 class="section-heading">重力方向</h2>
+          <div class="direction-pad">
+            <button type="button" class="gravity-button" data-direction="C" aria-label="C 向上"><span class="arrow" aria-hidden="true">↑</span> C</button>
+            <button type="button" class="gravity-button" data-direction="D" aria-label="D 向左"><span class="arrow" aria-hidden="true">←</span> D</button>
+            <button type="button" class="gravity-button" data-direction="A" aria-label="A 向下"><span class="arrow" aria-hidden="true">↓</span> A</button>
+            <button type="button" class="gravity-button" data-direction="B" aria-label="B 向右"><span class="arrow" aria-hidden="true">→</span> B</button>
+          </div>
+          <p class="hint gravity-help">释放后，点击盘面边缘的字母或按方向键可立即换向。</p>
+        </section>
+
+        <section class="control-group round-group" aria-label="释放与重置">
+          <button type="button" class="release" id="release">↓ 释放色块</button>
+          <div class="round-actions">
+            <button type="button" class="secondary" id="reset">回到起点</button>
+            <button type="button" class="secondary" id="shuffle">重新打乱</button>
+          </div>
+          <p class="notice" id="notice" role="status"></p>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script id="rules">
+    const boardSize = 36;
+    const netLayouts = [
+      { origin: { x: 7, y: 1 }, anchor: { x: 4, y: 4 }, faces: [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2]] },
+      { origin: { x: 20, y: 9 }, anchor: { x: 4, y: 4 }, faces: [[1, 0], [0, 1], [1, 1], [2, 1], [2, 2], [3, 2]] },
+      { origin: { x: 12, y: 19 }, anchor: { x: 4, y: 4 }, faces: [[1, 0], [0, 1], [1, 1], [2, 1], [3, 1], [1, 2]] }
+    ];
+    const directions = {
+      A: { x: 0, y: 1, arrow: '↓' },
+      B: { x: 1, y: 0, arrow: '→' },
+      C: { x: 0, y: -1, arrow: '↑' },
+      D: { x: -1, y: 0, arrow: '←' }
+    };
+
+    function negate(vector) {
+      return vector.map(value => -value);
+    }
+
+    function foldNet(faces) {
+      const orientations = new Map([[faces[0].join(), { normal: [0, 0, 1], right: [1, 0, 0], down: [0, 1, 0] }]]);
+      const pending = [faces[0]];
+      for (const [x, y] of pending) {
+        const { normal, right, down } = orientations.get([x, y].join());
+        const neighbors = [
+          { x: x + 1, y, normal: right, right: negate(normal), down },
+          { x: x - 1, y, normal: negate(right), right: normal, down },
+          { x, y: y + 1, normal: down, right, down: negate(normal) },
+          { x, y: y - 1, normal: negate(down), right, down: normal }
+        ];
+        for (const { x: nextX, y: nextY, ...orientation } of neighbors) {
+          const key = [nextX, nextY].join();
+          if (!orientations.has(key) && faces.some(([fx, fy]) => fx === nextX && fy === nextY)) {
+            orientations.set(key, orientation);
+            pending.push([nextX, nextY]);
+          }
+        }
+      }
+      return orientations;
+    }
+
+    function rotateVector(vector, axis, sign) {
+      const second = (axis + 1) % 3;
+      const third = (axis + 2) % 3;
+      const rotated = [...vector];
+      rotated[second] = -sign * vector[third];
+      rotated[third] = sign * vector[second];
+      return rotated;
+    }
+
+    function makeNet(faces, turns = 26, random = Math.random) {
+      const orientations = foldNet(faces);
+      // Columns below give the solved colors on the negative and positive sides of each axis.
+      const axisColors = [['O', 'R'], ['W', 'Y'], ['B', 'G']];
+      const squares = faces.flatMap(([faceX, faceY]) => {
+        const { normal, right, down } = orientations.get([faceX, faceY].join());
+        const axis = normal.findIndex(value => value !== 0);
+        const color = axisColors[axis][Number(normal[axis] > 0)];
+        return Array.from({ length: 9 }, (_, index) => {
+          const col = index % 3;
+          const row = Math.floor(index / 3);
+          const position = normal.map((value, i) => value + (col - 1) * right[i] + (row - 1) * down[i]);
+          return { x: faceX * 3 + col, y: faceY * 3 + row, position, normal, color };
+        });
+      });
+      const stickers = squares.map(({ position, normal, color }) => ({ position, normal, color }));
+
+      let previousFace = -1;
+      for (let turn = 0; turn < turns; turn++) {
+        // Pick any outer layer except the one just turned.
+        let face = Math.floor(random() * (previousFace === -1 ? 6 : 5));
+        if (previousFace !== -1 && face >= previousFace) face++;
+        previousFace = face;
+        const axis = Math.floor(face / 2);
+        const layer = face % 2 === 0 ? -1 : 1;
+        const sign = random() < .5 ? -1 : 1;
+        for (const sticker of stickers) {
+          if (sticker.position[axis] !== layer) continue;
+          sticker.position = rotateVector(sticker.position, axis, sign);
+          sticker.normal = rotateVector(sticker.normal, axis, sign);
+        }
+      }
+
+      const stickerKey = ({ position, normal }) => position.join() + '/' + normal.join();
+      const colors = new Map(stickers.map(sticker => [stickerKey(sticker), sticker.color]));
+      return squares.map(square => ({ x: square.x, y: square.y, color: colors.get(stickerKey(square)) }));
+    }
+
+    function isOnBoard(x, y) {
+      return x >= 0 && y >= 0 && x < boardSize && y < boardSize;
+    }
+
+    function cellKey(x, y) {
+      return y * boardSize + x;
+    }
+
+    function moveOneStep(pieces, direction, pins = []) {
+      const { x: dx, y: dy } = direction;
+      const next = [...pieces];
+      const occupied = new Set(pins);
+      for (const { x, y } of pieces) occupied.add(cellKey(x, y));
+      // Move the leading pieces first so each following piece can enter the vacated cell.
+      const order = pieces.map((_, index) => index).sort((a, b) =>
+        (pieces[b].x - pieces[a].x) * dx + (pieces[b].y - pieces[a].y) * dy
+      );
+      let moved = false;
+      for (const index of order) {
+        const piece = pieces[index];
+        const x = piece.x + dx;
+        const y = piece.y + dy;
+        if (!isOnBoard(x, y) || occupied.has(cellKey(x, y))) continue;
+        occupied.delete(cellKey(piece.x, piece.y));
+        occupied.add(cellKey(x, y));
+        next[index] = { ...piece, x, y };
+        moved = true;
+      }
+      return moved ? next : null;
+    }
+  </script>
+  <script>
+    const colors = { W: '#f4f3df', Y: '#ffda4a', R: '#f0524c', O: '#ff934d', G: '#49cb8c', B: '#4c9ce3' };
+    const outlineColors = { selected: '#ff8b78', ready: '#db6c61', released: '#9c5b55', blocked: '#ff605e' };
+    const board = document.getElementById('board');
+    const ctx = board.getContext('2d');
+    const frame = document.getElementById('frame');
+    const status = document.getElementById('status');
+    const releaseButton = document.getElementById('release');
+    const resetButton = document.getElementById('reset');
+    const pinButton = document.getElementById('edit-pins');
+    const pinCount = document.getElementById('pin-count');
+    const placementHelp = document.getElementById('placement-help');
+    const notice = document.getElementById('notice');
+    const directionButtons = [...document.querySelectorAll('[data-direction]')];
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    const netSelector = document.getElementById('net-actions');
+
+    let origins = netLayouts.map(({ origin }) => ({ ...origin }));
+    let nets = netLayouts.map(({ faces }) => makeNet(faces));
+    let selected = 0;
+    let gravity = 'A';
+    let released = false;
+    let pieces = [];
+    let pointer = null;
+    let motion = null;
+    let animationFrame = 0;
+    let fallSpeed = 0;
+    let motionDirection = gravity;
+    let editingPins = false;
+    const pins = new Set();
+
+    const netButtons = netLayouts.map(({ faces }, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'net-button';
+      const icon = document.createElement('canvas');
+      icon.width = 94;
+      icon.height = 56;
+      icon.setAttribute('aria-hidden', 'true');
+      const iconContext = icon.getContext('2d');
+      iconContext.strokeStyle = '#df8275';
+      iconContext.lineWidth = 1.8;
+      for (const [x, y] of faces) iconContext.strokeRect(10 + x * 18, 1 + y * 18, 18, 18);
+      button.append(icon, '魔方 ' + (index + 1));
+      button.addEventListener('click', () => selectNet(index));
+      netSelector.append(button);
+      return button;
+    });
+
+    function drawGrid() {
+      ctx.fillStyle = '#222e32';
+      ctx.fillRect(0, 0, boardSize, boardSize);
+      for (let major = 0; major <= 1; major++) {
+        const spacing = major ? 3 : 1;
+        ctx.strokeStyle = major ? '#4b5b60' : '#354449';
+        ctx.lineWidth = major ? .056 : .044;
+        ctx.beginPath();
+        for (let i = spacing; i < boardSize; i += spacing) {
+          ctx.moveTo(i, 0);
+          ctx.lineTo(i, boardSize);
+          ctx.moveTo(0, i);
+          ctx.lineTo(boardSize, i);
+        }
+        ctx.stroke();
+      }
+    }
+
+    function drawTile(tile, x, y) {
+      ctx.fillStyle = colors[tile.color];
+      ctx.fillRect(x + .055, y + .055, .89, .89);
+      ctx.fillStyle = 'rgba(255,255,255,.19)';
+      ctx.fillRect(x + .055, y + .055, .89, .075);
+    }
+
+    function drawPins() {
+      for (const key of pins) {
+        const x = key % boardSize;
+        const y = Math.floor(key / boardSize);
+        ctx.fillStyle = '#493c28';
+        ctx.fillRect(x + .055, y + .055, .89, .89);
+        ctx.beginPath();
+        ctx.arc(x + .5, y + .5, .32, 0, Math.PI * 2);
+        ctx.fillStyle = '#c19a58';
+        ctx.fill();
+        ctx.strokeStyle = '#f4d393';
+        ctx.lineWidth = .075;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x + .42, y + .41, .09, 0, Math.PI * 2);
+        ctx.fillStyle = '#58462b';
+        ctx.fill();
+      }
+    }
+
+    function traceOutline(faces, origin) {
+      const cells = new Set(faces.map(face => face.join()));
+      for (const [faceX, faceY] of faces) {
+        const x = origin.x + faceX * 3;
+        const y = origin.y + faceY * 3;
+        const edges = [
+          [0, -1, x, y, x + 3, y],
+          [1, 0, x + 3, y, x + 3, y + 3],
+          [0, 1, x + 3, y + 3, x, y + 3],
+          [-1, 0, x, y + 3, x, y]
+        ];
+        for (const [dx, dy, fromX, fromY, toX, toY] of edges) {
+          if (cells.has([faceX + dx, faceY + dy].join())) continue;
+          ctx.moveTo(fromX, fromY);
+          ctx.lineTo(toX, toY);
+        }
+      }
+    }
+
+    function drawOutline(index, origin, color, dashed = false) {
+      ctx.save();
+      ctx.lineWidth = color === outlineColors.selected ? .19 : .13;
+      ctx.lineCap = 'square';
+      ctx.strokeStyle = color;
+      if (dashed) ctx.setLineDash([.32, .21]);
+      ctx.beginPath();
+      traceOutline(netLayouts[index].faces, origin);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawNet(index, origin, tint, opacity = 1) {
+      ctx.save();
+      ctx.globalAlpha = opacity;
+      for (const tile of nets[index]) drawTile(tile, origin.x + tile.x, origin.y + tile.y);
+      ctx.strokeStyle = '#1b2327';
+      ctx.lineWidth = .15;
+      for (const [faceX, faceY] of netLayouts[index].faces) {
+        ctx.strokeRect(origin.x + faceX * 3, origin.y + faceY * 3, 3, 3);
+      }
+      drawOutline(index, origin, tint);
+      ctx.restore();
+    }
+
+    function draw(now = performance.now()) {
+      drawGrid();
+      if (released) {
+        for (let i = 0; i < origins.length; i++) drawOutline(i, origins[i], outlineColors.released, true);
+        const progress = motion ? Math.min(1, Math.max(0, (now - motion.started) / motion.duration)) : 0;
+        pieces.forEach((piece, index) => {
+          const end = motion?.next[index] ?? piece;
+          drawTile(piece, piece.x + (end.x - piece.x) * progress, piece.y + (end.y - piece.y) * progress);
+        });
+        drawPins();
+        return;
+      }
+
+      const moving = pointer?.dragging ? pointer : null;
+      for (let i = 0; i < nets.length; i++) {
+        const tint = !editingPins && i === selected ? outlineColors.selected : outlineColors.ready;
+        if (moving?.index === i) {
+          drawOutline(i, origins[i], outlineColors.released, true);
+        } else {
+          drawNet(i, origins[i], tint);
+        }
+      }
+      if (moving) {
+        const valid = canPlace(moving.index, moving.target);
+        drawNet(moving.index, moving.target, valid ? outlineColors.selected : outlineColors.blocked, valid ? .96 : .42);
+      }
+      drawPins();
+    }
+
+    function resizeBoard() {
+      const { width, height } = board.getBoundingClientRect();
+      board.width = Math.round(width * devicePixelRatio);
+      board.height = Math.round(height * devicePixelRatio);
+      ctx.setTransform(board.width / boardSize, 0, 0, board.height / boardSize, 0, 0);
+      draw();
+    }
+
+    function updateControls() {
+      frame.dataset.gravity = gravity;
+      for (const button of directionButtons) button.setAttribute('aria-pressed', String(button.dataset.direction === gravity));
+      netButtons.forEach((button, index) => {
+        button.disabled = released;
+        button.setAttribute('aria-pressed', String(!released && !editingPins && index === selected));
+      });
+      pinButton.disabled = released;
+      pinButton.setAttribute('aria-pressed', String(editingPins));
+      const pinCountText = pins.size + ' 枚';
+      if (pinCount.textContent !== pinCountText) pinCount.textContent = pinCountText;
+      const help = editingPins ? '点击空格放置钉子，再点一次移除。' : '拖动整张展开图，或选中后点击空格摆放。';
+      if (placementHelp.textContent !== help) placementHelp.textContent = help;
+      board.dataset.mode = released ? 'released' : (editingPins ? 'pin' : 'arranging');
+      releaseButton.disabled = released;
+      releaseButton.textContent = released ? '色块已释放' : directions[gravity].arrow + ' 释放色块';
+      resetButton.disabled = !released;
+      const statusText = released ? (motion ? '移动中' : '已落稳') : (editingPins ? '布置钉子中' : '摆放中');
+      if (status.textContent !== statusText) status.textContent = statusText;
+    }
+
+    function canPlace(index, origin) {
+      const occupied = new Set(pins);
+      nets.forEach((tiles, other) => {
+        if (other === index) return;
+        const at = origins[other];
+        for (const { x, y } of tiles) occupied.add(cellKey(at.x + x, at.y + y));
+      });
+      return nets[index].every(({ x, y }) => {
+        const col = origin.x + x;
+        const row = origin.y + y;
+        return isOnBoard(col, row) && !occupied.has(cellKey(col, row));
+      });
+    }
+
+    function selectNet(index) {
+      selected = index;
+      editingPins = false;
+      notice.textContent = '';
+      updateControls();
+      draw();
+    }
+
+    function placeNet(index, origin) {
+      if (!canPlace(index, origin)) {
+        notice.textContent = '这里放不下，请避开边界、钉子和其他展开图。';
+        return;
+      }
+      origins[index] = origin;
+      notice.textContent = '';
+    }
+
+    function boardPoint(event) {
+      const bounds = board.getBoundingClientRect();
+      return {
+        x: (event.clientX - bounds.left) * boardSize / bounds.width,
+        y: (event.clientY - bounds.top) * boardSize / bounds.height
+      };
+    }
+
+    function netAt(col, row) {
+      return nets.findIndex((tiles, index) =>
+        tiles.some(tile => col === tile.x + origins[index].x && row === tile.y + origins[index].y)
+      );
+    }
+
+    function togglePin(x, y) {
+      if (!isOnBoard(x, y)) return;
+      if (netAt(x, y) >= 0) {
+        notice.textContent = '这一格已有魔方色块，请在空格放置钉子。';
+        return;
+      }
+      const key = cellKey(x, y);
+      if (!pins.delete(key)) pins.add(key);
+      notice.textContent = '';
+    }
+
+    pinButton.addEventListener('click', () => {
+      if (pointer) return;
+      editingPins = !editingPins;
+      notice.textContent = '';
+      updateControls();
+      draw();
+    });
+
+    board.addEventListener('pointerdown', event => {
+      if (released || pointer || event.button !== 0) return;
+      const start = boardPoint(event);
+      const index = editingPins ? -1 : netAt(Math.floor(start.x), Math.floor(start.y));
+      pointer = { id: event.pointerId, index, start, dragging: false, target: origins[index] };
+      board.setPointerCapture(event.pointerId);
+      if (index >= 0) {
+        selectNet(index);
+        board.dataset.mode = 'grab';
+      }
+    });
+
+    function updatePointer(event) {
+      const at = boardPoint(event);
+      const dx = at.x - pointer.start.x;
+      const dy = at.y - pointer.start.y;
+      if (pointer.index >= 0 && (pointer.dragging || Math.hypot(dx, dy) > .35)) {
+        pointer.dragging = true;
+        const origin = origins[pointer.index];
+        pointer.target = { x: origin.x + Math.round(dx), y: origin.y + Math.round(dy) };
+        board.dataset.mode = 'drag';
+      }
+      return at;
+    }
+
+    board.addEventListener('pointermove', event => {
+      if (released || editingPins) return;
+      if (pointer?.id === event.pointerId) {
+        updatePointer(event);
+        if (pointer.dragging) draw();
+      } else if (!pointer) {
+        const { x, y } = boardPoint(event);
+        board.dataset.mode = netAt(Math.floor(x), Math.floor(y)) >= 0 ? 'grab' : 'arranging';
+      }
+    });
+
+    board.addEventListener('pointerup', event => {
+      if (pointer?.id !== event.pointerId) return;
+      const at = updatePointer(event);
+      if (pointer.dragging) {
+        placeNet(pointer.index, pointer.target);
+      } else if (pointer.index === -1 && Math.hypot(at.x - pointer.start.x, at.y - pointer.start.y) <= .35) {
+        const x = Math.floor(at.x);
+        const y = Math.floor(at.y);
+        if (editingPins) {
+          togglePin(x, y);
+        } else {
+          const anchor = netLayouts[selected].anchor;
+          placeNet(selected, { x: x - anchor.x, y: y - anchor.y });
+        }
+      }
+      pointer = null;
+      updateControls();
+      draw();
+    });
+
+    function cancelPointer(event) {
+      if (pointer?.id !== event.pointerId) return;
+      pointer = null;
+      updateControls();
+      draw();
+    }
+
+    board.addEventListener('pointercancel', cancelPointer);
+    board.addEventListener('lostpointercapture', cancelPointer);
+
+    function advance(now) {
+      if (motion) {
+        if (now < motion.started + motion.duration) {
+          draw(now);
+          animationFrame = requestAnimationFrame(advance);
+          return;
+        }
+        pieces = motion.next;
+        motion = null;
+      }
+
+      if (motionDirection !== gravity) {
+        motionDirection = gravity;
+        fallSpeed = 0;
+      }
+
+      let next = moveOneStep(pieces, directions[gravity], pins);
+      if (reducedMotion.matches) {
+        while (next) {
+          pieces = next;
+          next = moveOneStep(pieces, directions[gravity], pins);
+        }
+      }
+      if (next) {
+        const duration = Math.max(21, 62 - fallSpeed * 5);
+        fallSpeed++;
+        motion = { next, started: now, duration };
+        animationFrame = requestAnimationFrame(advance);
+      } else {
+        fallSpeed = 0;
+        animationFrame = 0;
+      }
+      updateControls();
+      draw(now);
+    }
+
+    function setGravity(direction) {
+      if (gravity === direction) return;
+      gravity = direction;
+      if (released && !animationFrame) advance(performance.now());
+      else updateControls();
+    }
+
+    function resetRound(scramble) {
+      cancelAnimationFrame(animationFrame);
+      if (pointer && board.hasPointerCapture(pointer.id)) board.releasePointerCapture(pointer.id);
+      animationFrame = 0;
+      motion = null;
+      pointer = null;
+      fallSpeed = 0;
+      released = false;
+      editingPins = false;
+      pieces = [];
+      if (scramble) nets = netLayouts.map(({ faces }) => makeNet(faces));
+      notice.textContent = '';
+      updateControls();
+      draw();
+    }
+
+    for (const button of directionButtons) button.addEventListener('click', () => setGravity(button.dataset.direction));
+    releaseButton.addEventListener('click', () => {
+      if (released) return;
+      pointer = null;
+      released = true;
+      editingPins = false;
+      pieces = nets.flatMap((tiles, index) => {
+        const origin = origins[index];
+        return tiles.map(tile => ({ ...tile, x: tile.x + origin.x, y: tile.y + origin.y }));
+      });
+      notice.textContent = '';
+      advance(performance.now());
+    });
+    resetButton.addEventListener('click', () => resetRound(false));
+    document.getElementById('shuffle').addEventListener('click', () => resetRound(true));
+
+    document.addEventListener('keydown', event => {
+      const keyDirections = { ArrowDown: 'A', ArrowRight: 'B', ArrowUp: 'C', ArrowLeft: 'D' };
+      const direction = keyDirections[event.key];
+      if (!direction || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.shiftKey) {
+        if (released || editingPins || pointer || document.activeElement !== board) return;
+        event.preventDefault();
+        const { x, y } = origins[selected];
+        const delta = directions[direction];
+        placeNet(selected, { x: x + delta.x, y: y + delta.y });
+        draw();
+        return;
+      }
+      event.preventDefault();
+      setGravity(direction);
+    });
+
+    new ResizeObserver(resizeBoard).observe(board);
+    updateControls();
+    resizeBoard();
+  </script>
+</body>
+</html>
