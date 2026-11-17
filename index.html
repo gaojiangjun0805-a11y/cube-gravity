@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>魔方重力盘</title>
+  <title>像素重力盘</title>
   <style>
     :root {
       font-family: "Geist", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -85,7 +85,31 @@
     .edge-D { left: 2px; top: 50%; transform: translateY(-50%); }
     .controls { padding: 18px; }
     .hint { margin: 7px 0 12px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+    .puzzle-options {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 5px;
+      margin-top: 9px;
+    }
+    .puzzle-button {
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 2px;
+      min-height: 57px;
+      padding: 2px;
+      border: 1px solid #36454a;
+      border-radius: 7px;
+      background: #1d272b;
+      color: #d6dfe0;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .puzzle-button canvas { width: 38px; height: 34px; image-rendering: pixelated; pointer-events: none; }
+    .puzzle-button[aria-pressed="true"] { color: var(--accent); background: #3a3020; border-color: #b48a53; }
+    .puzzle-group[hidden] + .control-group { border-top: 0; margin-top: 0; padding-top: 0; }
     .net-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+    [data-layout="pixel"] .net-actions { grid-template-columns: minmax(0, 1fr); }
     .net-button, .pin-button, .gravity-button, .secondary {
       background: #1d272b;
       border: 1px solid #36454a;
@@ -95,6 +119,7 @@
     }
     .net-button { padding: 8px 4px 7px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
     .net-button canvas { width: 47px; height: 28px; pointer-events: none; }
+    [data-layout="pixel"] .net-button { flex-direction: row; justify-content: flex-start; padding: 5px 10px; }
     .net-button[aria-pressed="true"]:not(:disabled) { border-color: #ee826e; background: #3a2928; color: #ffb9ac; }
     .pin-button {
       display: flex;
@@ -124,10 +149,15 @@
     .release:disabled { background: #2a3131; border-color: #465153; color: #abb8b9; opacity: 1; }
     .round-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
     .secondary { padding: 6px; }
+    .version-link {
+      display: grid; place-items: center; text-align: center; color: var(--muted); text-decoration: none;
+    }
+    .version-link[hidden] { display: none; }
+    .version-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
     .notice { margin: 10px 0 0; color: #ffad9d; font-size: 13px; line-height: 1.5; }
     .notice:empty { display: none; }
     @media (hover: hover) {
-      .net-button:not(:disabled):hover, .pin-button:not(:disabled):hover, .gravity-button:hover, .secondary:not(:disabled):hover, .edge:hover {
+      .puzzle-button:hover, .net-button:not(:disabled):hover, .pin-button:not(:disabled):hover, .gravity-button:hover, .secondary:not(:disabled):hover, .edge:hover {
         border-color: #87979a;
       }
       .release:not(:disabled):hover { background: #ffda8f; }
@@ -146,6 +176,8 @@
       .edge-C { top: 1px; }
       .edge-D { left: 1px; }
       .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; padding: 11px; }
+      .puzzle-group { grid-column: 1 / -1; }
+      .puzzle-options { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
       .control-group + .control-group { margin: 0; padding: 0; border: 0; }
       .round-group { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; align-items: start; }
       .round-actions { margin: 0; }
@@ -160,24 +192,27 @@
       .secondary { padding: 3px; }
       .notice { grid-column: 1 / -1; margin: 0; }
     }
+    @media (max-width: 365px) {
+      .puzzle-options { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
   <main class="shell">
     <header class="masthead">
-      <h1>魔方重力盘</h1>
-      <div class="counts"><span><b>36 × 36</b> 网格</span><span><b>162</b> 色块</span></div>
+      <h1 id="game-title">像素重力盘</h1>
+      <div class="counts"><span><b>36 × 36</b> 网格</span><span><b id="tile-count"></b> 色块</span></div>
     </header>
 
     <div class="workspace">
       <section class="panel board-panel" aria-labelledby="board-title">
         <div class="board-header">
           <h2 class="board-heading" id="board-title">盘面</h2>
-          <div class="status" id="status" role="status">摆放中</div>
+          <div class="status" id="status" role="status">原画</div>
         </div>
         <div class="board-frame" id="frame" data-gravity="A">
           <div class="surface">
-            <canvas id="board" tabindex="0" aria-label="魔方盘面。摆放时按住 Shift 并按方向键，可移动选中的展开图。"></canvas>
+            <canvas id="board" tabindex="0" aria-label="像素盘面。摆放时按住 Shift 并按方向键，可移动造型。"></canvas>
           </div>
           <button type="button" class="edge edge-A" data-direction="A" aria-label="A 向下">A</button>
           <button type="button" class="edge edge-B" data-direction="B" aria-label="B 向右">B</button>
@@ -187,9 +222,14 @@
       </section>
 
       <aside class="panel controls" aria-label="盘面操作">
+        <section class="control-group puzzle-group" id="puzzle-group" aria-labelledby="puzzle-title" hidden>
+          <h2 class="section-heading" id="puzzle-title">选择题目</h2>
+          <div class="puzzle-options" id="puzzle-options"></div>
+        </section>
+
         <section class="control-group">
           <h2 class="section-heading">起始布置</h2>
-          <p class="hint" id="placement-help">拖动整张展开图，或选中后点击空格摆放。</p>
+          <p class="hint" id="placement-help">拖动图案，或点击空格摆放。</p>
           <div class="net-actions" id="net-actions"></div>
           <button type="button" class="pin-button" id="edit-pins">
             <span class="pin-dot" aria-hidden="true"></span>
@@ -214,6 +254,7 @@
           <div class="round-actions">
             <button type="button" class="secondary" id="reset">回到起点</button>
             <button type="button" class="secondary" id="shuffle">重新打乱</button>
+            <a class="secondary version-link" id="cube-version" href="?mode=cubes" hidden>魔方版</a>
           </div>
           <p class="notice" id="notice" role="status"></p>
         </section>
@@ -340,7 +381,265 @@
     }
   </script>
   <script>
-    const colors = { W: '#f4f3df', Y: '#ffda4a', R: '#f0524c', O: '#ff934d', G: '#49cb8c', B: '#4c9ce3' };
+    const cubeMode = new URLSearchParams(location.search).get('mode') === 'cubes';
+    // Each letter is a playable color block. Dots leave the board empty.
+    const puzzleDefinitions = [
+      {
+        name: '小猫',
+        colors: {
+          K: '#69414a', D: '#332735', O: '#f5a55e', S: '#c77748', L: '#ffd080',
+          W: '#fff0ce', P: '#f1878d', T: '#64d3c1', C: '#328d8c', Y: '#ffdb67'
+        },
+        rows: [
+        '...KK.......KK.......',
+        '..KLOK.....KOSK......',
+        '..KPLOK...KOSPK......',
+        '..KPPLOKKKOSPPK......',
+        '..KLLOLSLLOOOSOK.....',
+        '.KLLOOSOSOSOOOSSK....',
+        '.KLOODOOOOOODOOSK....',
+        '.KOOLDWOOOOWDOOSK....',
+        '.KOPPWWPDWWPPPPOK....',
+        '..KOOWWDWWDWWOOK.....',
+        '...KOOWWWWWWOSK...KK.',
+        '....KTTTTTTTCK...KLLK',
+        '....KCCCYYCCCK...KSOK',
+        '...KOLWWWYWWOOK..KSK.',
+        '...KOLWWWWWWSOK..KLK.',
+        '...KOLWWWWWWSOOKKLSK.',
+        '...KOLWWWWWWSOOOOLSK.',
+        '...KOLWWWWWSOOSSSKK..',
+        '...KLWLWWLWWLSSKK....',
+        '...KWLLKOKWLLKS......',
+        '....KKKK..KKKK.......'
+        ]
+      },
+      { name: "小狗", colors: {"K":"#66504b","B":"#efbe83","W":"#ffe8b7","S":"#bb7655","E":"#8f514b","D":"#342c38","R":"#e75f65","T":"#f49093","Y":"#ffd789"}, rows: [
+        ".....SSEK...ESSK",
+        "...ESSWBBBWWBBSSE",
+        "..EESWWBBWWBBSSEEE",
+        ".EESSWBBBBBBBBSEEEK",
+        ".EEESWBDDDDWWDSSEEEE",
+        ".EEESWBDWBWBWDSEEEEE",
+        ".KESSWWWWDDWWWWSEEEK",
+        "..KSSWWWWDDWWWWSSBK",
+        "...KSWWWWWRWWWWSSK",
+        "....KWWWWTRTWWWWK",
+        ".....KRRTTREEERK",
+        "......KRRYYRRRK...KK",
+        ".....KBWWYWWBBSK.KSWK",
+        ".....KBWWWWWBSBBSSBK",
+        "....KBBWWWWWBBSBBSKK",
+        "....KBWWWWWWBSSBBK",
+        "....KWBBWKSBWWBS",
+        ".....WWWW..WWSS"
+      ] },
+      { name: "小兔", colors: {"K":"#746178","B":"#e7d9f2","W":"#fff0ee","P":"#f09fb5","S":"#bda6d2","D":"#49374b","T":"#ee7e8b","O":"#ed9c51","G":"#63ba92"}, rows: [
+        "....KK.....KK",
+        "...KPBK...KPBK",
+        "...KPPK...KPPK",
+        "...KPPK...KPPK",
+        "...KPPPK.KPPPK",
+        "...KPBWWWWBPSK",
+        "..KBWWWWWWWBSBK",
+        ".KBBDWWWWWWDBSBK",
+        ".KBBDWWWWWWDBSBK",
+        ".KPWWWTDDTWWWPBK",
+        "..KPWWWWWDWWWPK",
+        "...KBWWWWWWWBK",
+        "....KBWWWWWSK",
+        "....KBWWWWWBBK",
+        "...KBWWWWWWWWK",
+        "...KBBWWWWWGBBK",
+        "...KBBWWWWWOGBK.WK",
+        "...KBBWWWWOOOBSBWK",
+        "...KBBWWOOOBSOBBK",
+        "....KWBWOOBBBWS",
+        "....WWBB..BBWW"
+      ] },
+      { name: "小狐狸", colors: {"K":"#65414b","B":"#ee8251","W":"#fff0cc","L":"#ffaf60","P":"#f5a1a1","S":"#be5551","D":"#432d38","T":"#d86d45"}, rows: [
+        "..KK.........KK",
+        "..KSK.......KSK",
+        "..KPPK.....KPPK",
+        "..KPPLLBBBLLPPK",
+        "..KBLLLLLLLLBSSK",
+        ".KBBLDBBBBBDBSBBK",
+        ".KWLLDDBBBBDDLLWK",
+        ".KWWWWBBDBBWWWWBK",
+        "..KWWWWWDDDWWWWK",
+        "...KBWWWWDWWWBK....KK",
+        "....KBWWWWWWWK....KWWK",
+        ".....KBWWWWBS....KWWWS",
+        "....KBLWWWWBBS..KWWWSK",
+        "....KBLWWWWBBBS.WWSBK",
+        "....KBLLWWWBBBSKBBST",
+        "....KBLWWWWWBBSBSSBK",
+        "....KBLWWWWWBSBSSSKK",
+        "....KBWLBWBBSSSSSK",
+        "....KDDBBDSDBSDS",
+        ".....DDDD..DDDD"
+      ] },
+      { name: "熊猫", colors: {"K":"#4c4c61","B":"#f8eddb","W":"#fff6df","E":"#65586a","D":"#35323f","P":"#eea5ac","G":"#6fbb91","S":"#d7ccd0"}, rows: [
+        "...DEED......DEED",
+        "..DDEEED....DDEEED",
+        "..DEEDWWWWWWDEEDDD",
+        "..KDWWWWWWWWWWWWDK",
+        ".KBWWEEDWWWWDEESWBK",
+        ".KBWEDDWWWWWWDDESBK",
+        ".KBPEWDWWWWWWDWEPBK",
+        "..KBPWWWWDWWWWSPBK",
+        "...KWWWWDDDWWWWSS",
+        "....KWWWWDWWWWWS",
+        ".....DDDEEEEEDD",
+        "....DDDSWWWWSDDD",
+        "...KDDWWWWWWWWDDK",
+        "...KDDWWWWWWWWDDK",
+        "...KEDWWWWWWWWDEK",
+        "...KDDWWWWWWWWDDK",
+        "...KDDESWWWWSEDDK",
+        "....DEEED..DEEED"
+      ] },
+      { name: "小企鹅", colors: {"K":"#394659","B":"#53768d","L":"#759cae","N":"#466578","W":"#fff1d1","S":"#d7e2dd","D":"#2e313c","Y":"#ffcd6f","O":"#ef9a55","P":"#f19b9b"}, rows: [
+        ".......KKKKKK",
+        ".....KBLLLBBBNN",
+        "....KBLLLBBBBBNN",
+        "...KBLLLBBBBBBNNN",
+        "...KBWWBSWWWWBNSK",
+        "...KBWDWWWWDWBNNK",
+        "...KBWWWWWWWWSNNK",
+        "..KBWPWWYYWWPWSNNK",
+        ".KBBWWWWOOOWWWBNNBK",
+        ".KBBWWWWWWWWWWBNNBK",
+        ".KLBWWWWWWWWWWWSNBK",
+        "KBLLBWWWWWWWWWWSNBNK",
+        "KBLBBWWWWWWWWWWSNBNK",
+        ".KBBWWWWWWWWWWWSNBK",
+        "..KBWWWWWWWWWWWSSN",
+        "...KBWWWWWWWWWSNN",
+        "....KWWWWWWWWWSN",
+        ".....KBBSSSSSNN",
+        "....OYYOO..OYYOO",
+        "...OOYYOO..OOYYOO"
+      ] },
+      { name: "小鸡", colors: {"K":"#9f6447","B":"#ffd761","W":"#ffea9a","S":"#f5b551","O":"#f18a50","D":"#60404a","P":"#f59b82","L":"#fff2b0"}, rows: [
+        "...........KK",
+        "..........KWOK",
+        "........KSWWBSSK",
+        ".......KWLWWBBBBS",
+        ".......KWWWWBBBBSS",
+        "......KBWWWWBDBSSOK",
+        "......KBWWWWBDDSSOOO",
+        "......KBWWWWPPBBSOOOO",
+        "..KKKKSBBWWPPBBSSOOO",
+        ".KSBBWWWLWWWWWBBSSBK",
+        ".KSBWWWSSSWBBBBBSBK",
+        "..KSBWWSWSSWBBBBSS",
+        "..KSBWWWSSSBBBBBBS",
+        "...KSBBWWBBBBBBBS",
+        "....KSBBBBBBBBSS",
+        ".....KSSSSSSSSK",
+        ".....OOBO..OOBO",
+        "....OOOSO..OOOSO"
+      ] },
+      { name: "小青蛙", colors: {"K":"#426955","B":"#83ce82","W":"#fff4c9","L":"#b7ec9e","S":"#53a96c","D":"#344e43","P":"#e78683","Y":"#d2e695"}, rows: [
+        "....KKKK......KKKK",
+        "...KLWWSK....KLWWSK",
+        "..KLWDDWSK..KLWDDWSK",
+        "..KWDDWLLBLLLWDDWSBK",
+        ".KLLWWLLBBBBBLLWWSSBK",
+        ".KLLBBYBBBBBBBBYBBSSK",
+        ".KLPPBBDBBBBBDBBPPSSK",
+        ".KBPPBBBDDDDDDDBBPPBK",
+        "..KSBBYYYYYYYYYYBBSK",
+        "...KBBYYYYYYYYYYBSK",
+        "..KSBBYYYYYYYYYYBBSS",
+        ".KSSBYYYYYYYYYYYYBSSK",
+        "KSSBBYYYYYYYYYYYYBBSSK",
+        "KLBSBBSSBBSBSSBBSBSSLK",
+        ".KBBSSBBBK..KBBBSSBBK"
+      ] },
+      { name: "猫头鹰", colors: {"K":"#694952","B":"#b8805e","L":"#ebba81","W":"#ffebbd","S":"#9b624c","D":"#473546","O":"#efa755","P":"#db9278"}, rows: [
+        "...KK..........KK",
+        "...SBLK......KLBS",
+        "...SBLLBBSSBBLLBS",
+        "..KBLWWLBBLWWLBSBK",
+        "..KLWWWLLBLWWWWLSK",
+        ".KSLWDDWLBBLWDDWLSK",
+        ".KSLWDDWLBBLWDDWLSK",
+        ".KBLWWWLWOOOWLWWWLK",
+        ".KBBLWWLBOOBLWWLBSK",
+        "..KSBLLBBLOBBLLBSS",
+        "..KSSBLLWWWWLLBSSK",
+        "..KSSBLWPWWPWLBSBK",
+        "..KSBLLWWLWWWLLSSK",
+        "...KSBLLPWWPWLBSK",
+        "...KBSSLLWWLSBSBK",
+        "....KBBSLLLLSBBK",
+        ".....SSSBBSBSSS",
+        ".....OOOO..OOOO"
+      ] },
+      { name: "小恐龙", colors: {"K":"#3d625d","B":"#6fb993","L":"#a0d6a9","S":"#4b9482","W":"#fff0be","D":"#2d4452","P":"#ed998b","R":"#cf785e","Y":"#e0dc91"}, rows: [
+        ".............SSSKK",
+        "...........SLLLLBBSK",
+        "..........SLLLBBDBBSK",
+        ".........KSLLBBBDWBBSK",
+        ".........KSLLBBBBBBLBSK",
+        ".........KBBLBBBBPWBBSS",
+        "........KSBBLBBBPWDDDDK",
+        ".......KSBBLBBBWWWWWSS",
+        ".......KSBBLBBWWWWS",
+        "......KSBLBBWWYYBS",
+        ".....KSBLBBBWWYYBS",
+        ".LSK.RLBBBSWWYYBBS",
+        "KLBLRSBBBWSWWYYBSK",
+        ".KBLLBBBBBBWWYYBSK",
+        "..SBBLBBBBBBWWYYSS",
+        "...SSBBLBBBBWWYYS",
+        ".....KSBBLBBWWWYS",
+        "......SBBBBBSBBS",
+        "......LBBB..LBBS",
+        ".....YYLSS..YYLSS"
+      ] },
+      { name: "小章鱼", colors: {"K":"#735268","B":"#e4879c","L":"#f4adc0","S":"#bd6d94","P":"#f9c4b9","W":"#fff0cc","D":"#4b354d","C":"#ce7c99","G":"#f6a2a6"}, rows: [
+        "........KKKKKKK",
+        "......KKLLLLBBBKK",
+        ".....KLLLBBBBBBBSS",
+        "....KLLLBBBBBBBBBSS",
+        "....KLLPBBBBBBBBBBS",
+        "...KBLPBBWWBBBBWWBSK",
+        "...KLBBBWDBBBBWDBSSK",
+        "...KLBBBWDBBBBWDBSSK",
+        "...KSBBPPBBDBBPPBSSK",
+        ".KK.KBBPBBDBDBBPSBK.KK",
+        "KLPKBBBBLBBBBLBBSBBKPLK",
+        "KLLBBSBLLBBBBLLBSBBPLLK",
+        ".KCSBLBLLBBBBLLBLBSBCK",
+        "..CSBBLBLLBBLBLLBBSBC",
+        ".KPLLBSB.LBBSB.BSLLSPK",
+        "KPBSSK..PLS.SLP..KSBPPK",
+        ".CCCC..PBCS.SCBP..CCCC",
+        ".......CCC...CCC"
+      ] }
+    ];
+    const puzzles = puzzleDefinitions.map(({ name, colors, rows }) => {
+      const tiles = rows.flatMap((row, y) => [...row].flatMap((color, x) =>
+        color === '.' ? [] : [{ x, y, color }]
+      ));
+      const columns = tiles.map(({ x }) => x);
+      const left = Math.min(...columns);
+      const right = Math.max(...columns);
+      const width = right - left + 1;
+      const height = rows.length;
+      return {
+        name, colors, tiles, left, width, height,
+        origin: { x: Math.floor((boardSize - width) / 2) - left, y: Math.floor((boardSize - height) / 2) },
+        anchor: { x: Math.floor((left + right) / 2), y: Math.floor(height / 2) }
+      };
+    });
+    const layouts = cubeMode ? netLayouts : [puzzles[0]];
+    let colors = cubeMode
+      ? { W: '#f4f3df', Y: '#ffda4a', R: '#f0524c', O: '#ff934d', G: '#49cb8c', B: '#4c9ce3' }
+      : puzzles[0].colors;
     const outlineColors = { selected: '#ff8b78', ready: '#db6c61', released: '#9c5b55', blocked: '#ff605e' };
     const board = document.getElementById('board');
     const ctx = board.getContext('2d');
@@ -348,6 +647,7 @@
     const status = document.getElementById('status');
     const releaseButton = document.getElementById('release');
     const resetButton = document.getElementById('reset');
+    const shuffleButton = document.getElementById('shuffle');
     const pinButton = document.getElementById('edit-pins');
     const pinCount = document.getElementById('pin-count');
     const placementHelp = document.getElementById('placement-help');
@@ -355,9 +655,13 @@
     const directionButtons = [...document.querySelectorAll('[data-direction]')];
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
     const netSelector = document.getElementById('net-actions');
+    const boardTitle = document.getElementById('board-title');
+    const tileCount = document.getElementById('tile-count');
+    const puzzleOptions = document.getElementById('puzzle-options');
 
-    let origins = netLayouts.map(({ origin }) => ({ ...origin }));
-    let nets = netLayouts.map(({ faces }) => makeNet(faces));
+    let origins = layouts.map(({ origin }) => ({ ...origin }));
+    let nets = cubeMode ? netLayouts.map(({ faces }) => makeNet(faces)) : [layouts[0].tiles];
+    let activePuzzle = 0;
     let selected = 0;
     let gravity = 'A';
     let released = false;
@@ -370,7 +674,46 @@
     let editingPins = false;
     const pins = new Set();
 
-    const netButtons = netLayouts.map(({ faces }, index) => {
+    document.body.dataset.layout = cubeMode ? 'cube' : 'pixel';
+    if (cubeMode) {
+      document.title = '魔方重力盘';
+      document.getElementById('game-title').textContent = document.title;
+      board.setAttribute('aria-label', '魔方盘面。摆放时按住 Shift 并按方向键，可移动选中的展开图。');
+    } else {
+      resetButton.textContent = '恢复原画';
+      shuffleButton.hidden = true;
+      document.getElementById('cube-version').hidden = false;
+      document.getElementById('puzzle-group').hidden = false;
+    }
+
+    function drawThumbnail(canvas, puzzle) {
+      const context = canvas.getContext('2d');
+      const scale = Math.max(1, Math.floor(Math.min((canvas.width - 4) / puzzle.width, (canvas.height - 4) / puzzle.height)));
+      const left = Math.floor((canvas.width - puzzle.width * scale) / 2);
+      const top = Math.floor((canvas.height - puzzle.height * scale) / 2);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      for (const { x, y, color } of puzzle.tiles) {
+        context.fillStyle = puzzle.colors[color];
+        context.fillRect(left + (x - puzzle.left) * scale, top + y * scale, scale, scale);
+      }
+    }
+
+    const puzzleButtons = cubeMode ? [] : puzzles.map((puzzle, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'puzzle-button';
+      const preview = document.createElement('canvas');
+      preview.width = 58;
+      preview.height = 52;
+      preview.setAttribute('aria-hidden', 'true');
+      drawThumbnail(preview, puzzle);
+      button.append(preview, puzzle.name);
+      button.addEventListener('click', () => selectPuzzle(index));
+      puzzleOptions.append(button);
+      return button;
+    });
+
+    const netButtons = layouts.map(({ faces }, index) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'net-button';
@@ -378,15 +721,40 @@
       icon.width = 94;
       icon.height = 56;
       icon.setAttribute('aria-hidden', 'true');
-      const iconContext = icon.getContext('2d');
-      iconContext.strokeStyle = '#df8275';
-      iconContext.lineWidth = 1.8;
-      for (const [x, y] of faces) iconContext.strokeRect(10 + x * 18, 1 + y * 18, 18, 18);
-      button.append(icon, '魔方 ' + (index + 1));
+      if (faces) {
+        const iconContext = icon.getContext('2d');
+        iconContext.strokeStyle = '#df8275';
+        iconContext.lineWidth = 1.8;
+        for (const [x, y] of faces) iconContext.strokeRect(10 + x * 18, 1 + y * 18, 18, 18);
+      }
+      button.append(icon, cubeMode ? '魔方 ' + (index + 1) : '移动图案');
       button.addEventListener('click', () => selectNet(index));
       netSelector.append(button);
       return button;
     });
+
+    function updatePuzzleInfo() {
+      tileCount.textContent = nets.reduce((count, tiles) => count + tiles.length, 0);
+      if (cubeMode) return;
+      const puzzle = puzzles[activePuzzle];
+      boardTitle.textContent = puzzle.name;
+      puzzleButtons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === activePuzzle)));
+      drawThumbnail(netButtons[0].querySelector('canvas'), puzzle);
+    }
+
+    function selectPuzzle(index) {
+      if (index === activePuzzle) return;
+      activePuzzle = index;
+      const puzzle = puzzles[index];
+      layouts[0] = puzzle;
+      origins = [{ ...puzzle.origin }];
+      nets = [puzzle.tiles];
+      colors = puzzle.colors;
+      pins.clear();
+      gravity = 'A';
+      resetRound(false);
+      updatePuzzleInfo();
+    }
 
     function drawGrid() {
       ctx.fillStyle = '#222e32';
@@ -453,6 +821,7 @@
     }
 
     function drawOutline(index, origin, color, dashed = false) {
+      if (!cubeMode) return;
       ctx.save();
       ctx.lineWidth = color === outlineColors.selected ? .19 : .13;
       ctx.lineCap = 'square';
@@ -464,16 +833,23 @@
       ctx.restore();
     }
 
-    function drawNet(index, origin, tint, opacity = 1) {
+    function drawLayout(index, origin, tint, opacity = 1) {
       ctx.save();
       ctx.globalAlpha = opacity;
-      for (const tile of nets[index]) drawTile(tile, origin.x + tile.x, origin.y + tile.y);
-      ctx.strokeStyle = '#1b2327';
-      ctx.lineWidth = .15;
-      for (const [faceX, faceY] of netLayouts[index].faces) {
-        ctx.strokeRect(origin.x + faceX * 3, origin.y + faceY * 3, 3, 3);
+      if (cubeMode) {
+        for (const tile of nets[index]) drawTile(tile, origin.x + tile.x, origin.y + tile.y);
+        ctx.strokeStyle = '#1b2327';
+        ctx.lineWidth = .15;
+        for (const [faceX, faceY] of netLayouts[index].faces) {
+          ctx.strokeRect(origin.x + faceX * 3, origin.y + faceY * 3, 3, 3);
+        }
+        drawOutline(index, origin, tint);
+      } else {
+        for (const { x, y, color } of nets[index]) {
+          ctx.fillStyle = colors[color];
+          ctx.fillRect(origin.x + x, origin.y + y, 1.01, 1.01);
+        }
       }
-      drawOutline(index, origin, tint);
       ctx.restore();
     }
 
@@ -496,12 +872,12 @@
         if (moving?.index === i) {
           drawOutline(i, origins[i], outlineColors.released, true);
         } else {
-          drawNet(i, origins[i], tint);
+          drawLayout(i, origins[i], tint);
         }
       }
       if (moving) {
         const valid = canPlace(moving.index, moving.target);
-        drawNet(moving.index, moving.target, valid ? outlineColors.selected : outlineColors.blocked, valid ? .96 : .42);
+        drawLayout(moving.index, moving.target, valid ? outlineColors.selected : outlineColors.blocked, valid ? .96 : .42);
       }
       drawPins();
     }
@@ -525,13 +901,15 @@
       pinButton.setAttribute('aria-pressed', String(editingPins));
       const pinCountText = pins.size + ' 枚';
       if (pinCount.textContent !== pinCountText) pinCount.textContent = pinCountText;
-      const help = editingPins ? '点击空格放置钉子，再点一次移除。' : '拖动整张展开图，或选中后点击空格摆放。';
+      const placement = cubeMode ? '拖动整张展开图，或选中后点击空格摆放。' : '拖动图案，或点击空格摆放。';
+      const help = editingPins ? '点击空格放置钉子，再点一次移除。' : placement;
       if (placementHelp.textContent !== help) placementHelp.textContent = help;
       board.dataset.mode = released ? 'released' : (editingPins ? 'pin' : 'arranging');
       releaseButton.disabled = released;
       releaseButton.textContent = released ? '色块已释放' : directions[gravity].arrow + ' 释放色块';
       resetButton.disabled = !released;
-      const statusText = released ? (motion ? '移动中' : '已落稳') : (editingPins ? '布置钉子中' : '摆放中');
+      const readyStatus = cubeMode ? '摆放中' : '原画';
+      const statusText = released ? (motion ? '移动中' : '已落稳') : (editingPins ? '布置钉子中' : readyStatus);
       if (status.textContent !== statusText) status.textContent = statusText;
     }
 
@@ -559,7 +937,7 @@
 
     function placeNet(index, origin) {
       if (!canPlace(index, origin)) {
-        notice.textContent = '这里放不下，请避开边界、钉子和其他展开图。';
+        notice.textContent = cubeMode ? '这里放不下，请避开边界、钉子和其他展开图。' : '这里放不下，请避开边界和钉子。';
         return;
       }
       origins[index] = origin;
@@ -583,7 +961,7 @@
     function togglePin(x, y) {
       if (!isOnBoard(x, y)) return;
       if (netAt(x, y) >= 0) {
-        notice.textContent = '这一格已有魔方色块，请在空格放置钉子。';
+        notice.textContent = '这一格已有色块，请在空格放置钉子。';
         return;
       }
       const key = cellKey(x, y);
@@ -646,7 +1024,7 @@
         if (editingPins) {
           togglePin(x, y);
         } else {
-          const anchor = netLayouts[selected].anchor;
+          const anchor = layouts[selected].anchor;
           placeNet(selected, { x: x - anchor.x, y: y - anchor.y });
         }
       }
@@ -738,7 +1116,7 @@
       advance(performance.now());
     });
     resetButton.addEventListener('click', () => resetRound(false));
-    document.getElementById('shuffle').addEventListener('click', () => resetRound(true));
+    shuffleButton.addEventListener('click', () => resetRound(true));
 
     document.addEventListener('keydown', event => {
       const keyDirections = { ArrowDown: 'A', ArrowRight: 'B', ArrowUp: 'C', ArrowLeft: 'D' };
@@ -758,6 +1136,7 @@
     });
 
     new ResizeObserver(resizeBoard).observe(board);
+    updatePuzzleInfo();
     updateControls();
     resizeBoard();
   </script>
